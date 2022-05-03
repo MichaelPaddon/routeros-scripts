@@ -1,0 +1,123 @@
+# A RouterOS script to synchronise DNS with DHCP leases.
+# This may be run regularly or whenever a DHCP event occurs.
+#
+# Copyright 2022 by Michael Paddon.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation, either version 3 of the License, or (at your
+# option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+# or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+# for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program. If not, see <https://www.gnu.org/licenses/>.
+
+# default domain for DNS records
+:global DefaultDomain "localdomain"
+
+# TTL for DNS records
+:global DnsTtl 5m
+
+# magic comment for DNS records
+:global Magic "automatic-from-dhcp"
+
+# return the domain associated with an address
+:global GetDomain do={
+    :global DefaultDomain
+    :local ipaddr [:toip $1]
+    :foreach network in [/ip/dhcp-server/network/find] do={
+        :local netblock [/ip/dhcp-server/network/get value-name=address $network]
+        :if ($ipaddr in $netblock) do={
+            :return [/ip/dhcp-server/network/get value-name=domain $network]
+        }
+    }
+
+    :return $DefaultDomain
+}
+
+# is a string a valid DNS name?
+:global IsValidName do={
+    :local string [:tostr $1]
+    :return ($string ~ "^[A-Za-z0-9-][A-Za-z0-9-]*\$" && [:len $string] < 64)
+}
+
+# return an array of fqdn=ipaddr items
+:global GetFqdns do={
+    :global GetDomain
+    :global IsValidName
+
+    :local fqdns [:toarray ""]
+    :foreach lease in [/ip/dhcp-server/lease/find] do={
+        :local hostname [/ip/dhcp-server/lease/get value-name=host-name $lease]
+        :if ([$IsValidName $hostname]) do={
+            :local ipaddr [/ip/dhcp-server/lease/get value-name=address $lease]
+            :local domain [$GetDomain $ipaddr]
+            :local fqdn ($hostname . "." . $domain)
+            :if ([:len ($fqdns->$fqdn)] = 0) do={
+                :set ($fqdns->$fqdn) $ipaddr
+            }
+        }
+    }
+
+    :return $fqdns
+}
+
+# update a DNS record, returning true if a change was made
+:global Update do={
+    :global DnsTtl
+    :global Magic
+
+    :local fqdn [:tostr $1]
+    :local ipaddr [:toip $2]
+
+    # record already present?
+    :if ([:len [/ip/dns/static/find where name=$fqdn address=$ipaddr ttl=$DnsTtl comment=$Magic]] > 0) do={
+        :return false
+    }
+
+    # record exists but needs updating?
+    :local exists [/ip/dns/static/find where name=$fqdn comment=$Magic]
+    :if ([:len $exists] > 0) do={
+        :log info "syncdns: update $fqdn -> $ipaddr"
+        /ip/dns/static/set address=$ipaddr ttl=$DnsTtl $exists
+        :return true
+    }
+
+    # no record of that name at all?
+    :if ([:len [/ip/dns/static/find where name=$fqdn]] = 0) do={
+        :log info "syncdns: add $fqdn -> $ipaddr"
+        /ip/dns/static/add name=$fqdn address=$ipaddr ttl=$DnsTtl comment=$Magic
+        :return true
+    }
+
+    :return false
+}
+
+# synchronize DNS
+:global SyncDns do={
+    :global GetFqdns
+    :global Magic
+    :global Update
+
+    # update dns records
+    :local fqdns [$GetFqdns]
+    :foreach fqdn,ipaddr in=$fqdns do={
+        [$Update $fqdn $ipaddr]
+    }
+
+    # remove obsolete dns records
+    :foreach entry in [/ip/dns/static/find where comment=$Magic] do={
+        :local fqdn [/ip dns static get value-name=name $entry]
+        :if ([:len ($fqdns->$fqdn)] = 0) do={
+            :log info "syncdns: remove $fqdn"
+            /ip/dns/static/remove $entry
+        }
+    } 
+}
+
+:log info "syncdns: synchronize"
+[$SyncDns]
