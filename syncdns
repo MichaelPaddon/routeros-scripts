@@ -42,7 +42,7 @@
 # is a string a valid DNS name?
 :global IsValidName do={
     :local string [:tostr $1]
-    :return ($string ~ "^[A-Za-z0-9-][A-Za-z0-9-]*\$" && [:len $string] < 64)
+    :return ($string ~ "^[A-Za-z][A-Za-z0-9-]{0,61}[A-Za-z0-9]?\$")
 }
 
 # return an array of fqdn=ipaddr items
