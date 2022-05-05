@@ -76,13 +76,13 @@
     :local fqdn [:tostr $1]
     :local ipaddr [:toip $2]
 
-    # record already present?
+    # correct record already present?
     /ip dns static
     :if ([:len [find where name=$fqdn address=$ipaddr ttl=$DnsTtl comment=$Magic]] > 0) do={
         :return false
     }
 
-    # record exists but needs updating?
+    # if record exists it must be updated
     :local exists [find where name=$fqdn comment=$Magic]
     :if ([:len $exists] > 0) do={
         :log info "syncdns: update $fqdn -> $ipaddr"
@@ -90,7 +90,8 @@
         :return true
     }
 
-    # no record of that name at all?
+    # if no record of that name exists at all, create record
+    # note: a manually created record may exist which MUST NOT be touched
     :if ([:len [find where name=$fqdn]] = 0) do={
         :log info "syncdns: add $fqdn -> $ipaddr"
         add name=$fqdn address=$ipaddr ttl=$DnsTtl comment=$Magic
