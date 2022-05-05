@@ -1,3 +1,5 @@
+# syncdns version: 1.0.0
+#
 # A RouterOS script to synchronise DNS with DHCP leases.
 # This may be run regularly or whenever a DHCP event occurs.
 #
