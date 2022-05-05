@@ -58,7 +58,7 @@
         :if ([$IsValidName $hostname]) do={
             :local ipaddr [get value-name=address $lease]
             :local domain [$GetDomain $ipaddr]
-            :local fqdn ($hostname . "." . $domain)
+            :local fqdn "$hostname.$domain"
             :if ([:len ($fqdns->$fqdn)] = 0) do={
                 :set ($fqdns->$fqdn) $ipaddr
             }
